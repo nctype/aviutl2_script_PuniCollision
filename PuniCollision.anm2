@@ -1,4 +1,4 @@
---information:PuniCollision v0.7.0
+--information:PuniCollision v0.7.2
 --label:変形
 --require:2011300
 --track@collision_id:グループID,1,9999,1,1
@@ -519,7 +519,7 @@ end
 local function proxy_solve(bodies,span,steps,dt,scene,group,rigids)
     rigids=rigids or {}
     local cages={}
-    local signature={"proxy070",tostring(span),tostring(steps),tostring(dt)}
+    local signature={"proxy072",tostring(span),tostring(steps),tostring(dt)}
     local function add(v) signature[#signature+1]=string.format("%.17g",v) end
     for _,m in ipairs(bodies) do if m.cage then
         local c=m.cage;c.layer=m.layer;c.relative=m.relative;c.time=m.time;c.history={}
@@ -547,7 +547,7 @@ local function proxy_solve(bodies,span,steps,dt,scene,group,rigids)
             else add(0) end
         end
     end
-    local key="PuniProxy070:"..tostring(scene)..":"..tostring(group)
+    local key="PuniProxy072:"..tostring(scene)..":"..tostring(group)
     local sig=table.concat(signature,",")
     local cached=global[key..":result"]
     if global[key..":signature"]==sig and type(cached)=="string" then
@@ -607,7 +607,13 @@ local function capture_key(layer)
     return "PuniCapture060:"..tostring(obj.scene_id)..":"..tostring(obj.originframe)..":"..layer
 end
 local function capture_incoming(saved)
+    local request=tonumber(global[capture_key(0)..":effect"])
     local key=capture_key(obj.layer)
+    if type(request)=="number" then
+        -- Effect-layer numbers and media-layer numbers are distinct.
+        if (obj.effect_layer or obj.layer)~=request then return true end
+        key=capture_key(request)
+    end
     local cache=global[key]
     if type(cache)~="string" or cache=="" then return false end
     if obj.copybuffer(cache,"object") then
@@ -617,6 +623,7 @@ local function capture_incoming(saved)
         end
         global[key..":transform"]=table.concat(values,",")
         global[key..":ready"]=cache
+        global[key..":media"]=obj.layer
     end
     return true
 end
@@ -651,21 +658,55 @@ local function prepare_psd_capture(layer)
     global[key]=previous
     if not ok then error("PuniCollision: PSD capture initialization failed: "..tostring(err)) end
 end
-local function capture_peer(layer,cache)
-    prepare_psd_capture(layer)
-    local key=capture_key(layer)
-    local previous={global[key] or "",global[key..":transform"] or "",global[key..":ready"] or ""}
-    global[key],global[key..":transform"],global[key..":ready"]=cache,"",""
-    local ok,result=pcall(obj.load,"layer",layer,true)
-    local ready,data=global[key..":ready"]==cache,global[key..":transform"] or ""
-    global[key],global[key..":transform"],global[key..":ready"]=previous[1],previous[2],previous[3]
-    if not ok or not result or not ready then
-        error("PuniCollision: failed to capture pre-collision image on layer "..layer..": "..tostring(result))
-    end
+local function capture_peer(effect_layer,cache)
+    local key=capture_key(effect_layer)
+    local request_key=capture_key(0)..":effect"
+    local previous={global[key] or "",global[key..":transform"] or "",global[key..":ready"] or "",global[key..":media"] or "",global[request_key] or ""}
+    global[key],global[key..":transform"],global[key..":ready"],global[key..":media"]=cache,"","",0
+    local media,data,result
+    local standalone=not obj.getvalue("layer"..effect_layer)
+    local fallback
+    local ok,err=pcall(function()
+        -- A standalone effect belongs to the preceding media object. Resolve
+        -- that owner through the host callback instead of guessing from gaps.
+        for candidate=effect_layer,1,-1 do
+            if obj.getvalue("layer"..candidate) then
+                prepare_psd_capture(candidate)
+                global[request_key]=effect_layer
+                if standalone then
+                    -- Do not carry the caller's relative transform into a peer load.
+                    for _,f in ipairs(transform_fields) do
+                        obj[f]=(f:sub(1,1)=="s" or f=="alpha") and 1 or 0
+                    end
+                end
+                result=obj.load("layer",candidate,true)
+                global[request_key]=previous[5]
+                if result and global[key..":ready"]==cache then
+                    media=tonumber(global[key..":media"])
+                    data=global[key..":transform"]
+                    break
+                end
+                if standalone then
+                    -- Layer existence queries only identify media objects. Loading
+                    -- media does not execute standalone effects below that media.
+                    if result then
+                        media=candidate
+                        fallback=save_transform()
+                        if not obj.copybuffer(cache,"object") then error("PuniCollision: peer image copy failed") end
+                    end
+                    break
+                end
+            end
+        end
+    end)
+    global[key],global[key..":transform"],global[key..":ready"],global[key..":media"],global[request_key]=previous[1],previous[2],previous[3],previous[4],previous[5]
+    if not ok then error(err) end
+    if not media then error("PuniCollision: failed to capture media for effect layer "..effect_layer..": "..tostring(result)) end
+    if fallback then return fallback,media end
     local saved,i={},1
     for value in data:gmatch("[^,]+") do saved[transform_fields[i]]=tonumber(value);i=i+1 end
     if i~=#transform_fields+1 or not obj.copybuffer("object",cache) then error("PuniCollision: invalid peer capture") end
-    return saved
+    return saved,media
 end
 local function make_mesh(strength,soft)
     obj.pixeloption("get","object")
@@ -708,22 +749,25 @@ local function main()
     local source=cache..":source"
     if not obj.copybuffer(source,"object") then return end
     local bodies,rigids={},{}
+    local seen={[layer]=true}
     local function restore()
         obj.copybuffer("object",source)
         for _,f in ipairs(transform_fields) do obj[f]=saved[f] end
     end
     for other=1,(obj.getinfo("layer_max") or layer) do
-        if other~=layer and obj.getvalue("layer"..other) then
-            local prefix="layer"..other.."."
+        if other~=(obj.effect_layer or layer) then
             local peer_group=obj.getvalue(other,"PuniCollision:0","グループID")
             if tonumber(peer_group)==group and not is_rigid(obj.getvalue(other,"PuniCollision:0","剛体")) then
-                local relative=capture_peer(other,cache..":layer"..other)
+                local relative,media=capture_peer(other,cache..":layer"..other)
+                if not seen[media] then
+                seen[media]=true
                 local soft=tonumber(obj.getvalue(other,"PuniCollision:0","押出量")) or 50
                 local tail=tonumber(obj.getvalue(other,"PuniCollision:0","反発")) or 50
                 local m={cage=make_proxy(clamp(soft/100,0,1))}
                 if m.cage then m.cage.rebound=clamp(tail/100,0,1) end
-                m.layer,m.relative,m.time=other,relative,obj.getvalue(prefix.."time") or 0
+                m.layer,m.relative,m.time=media,relative,obj.getvalue("layer"..media..".time") or 0
                 bodies[#bodies+1]=m
+                end
                 restore()
             else
                 local index=0
@@ -732,7 +776,8 @@ local function main()
                     local id=obj.getvalue(other,effect,"グループID")
                     if id==nil then break end
                     if tonumber(id)==group and is_rigid(obj.getvalue(other,effect,"剛体")) then
-                        local relative=capture_peer(other,cache..":rigid"..other)
+                        local relative,media=capture_peer(other,cache..":rigid"..other)
+                        if media~=layer then
                         local mode=obj.getvalue(other,effect,"剛体形状")
                         local m
                         if tonumber(mode)==1 or mode=="手動指定" then
@@ -743,8 +788,9 @@ local function main()
                             m.fixed=true
                             for _,n in ipairs(m.nodes) do n.weight=0 end
                         end
-                        m.layer,m.relative,m.time=other,relative,obj.getvalue(prefix.."time") or 0
+                        m.layer,m.relative,m.time=media,relative,obj.getvalue("layer"..media..".time") or 0
                         rigids[#rigids+1]=m
+                        end
                         restore()
                     end
                     index=index+1

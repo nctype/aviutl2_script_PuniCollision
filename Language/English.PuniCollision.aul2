@@ -1,0 +1,25 @@
+[Language]
+Information=English language for PuniCollision 0.7.0
+SubLanguage=English
+
+[PuniCollision]
+グループID=GroupID
+剛体=Rigid Body
+変形範囲=Deformation
+押出量=Compression
+反発=Rebound
+剛体形状=RigidShape
+自動生成=Auto
+手動指定=Manual
+制御点の数=PointCount
+内部頂点=Internal Vertices
+使い方=Usage Notes
+グループ制御・画像合成への適用は推奨しません=Applying this effect to Group Control or Image Composition is not recommended
+同じグループIDのオブジェクト同士が衝突します。PSDでは描画効果の後に配置してください=Objects with the same GroupID collide; place this effect after PSD rendering
+変形範囲：輪郭付近→全体=Deformation: edges → whole object
+押出量：つぶれる→外側へ膨らむ=Compression: flatten → expand outward
+反発：低いほど早く収まり、高いほど長く続きます=Rebound: lower values settle faster; higher values last longer
+剛体の点と線は選択して編集中のみ表示され、プレビュー映像や出力には含まれません=Rigid handles appear only while selected for editing, not in preview frames or exports
+2点は線分、3～36点は閉じた多角形です。線を交差させないでください=2 points form a segment; 3–36 form a closed polygon. Do not cross the edges
+変形=Deformation
+PuniCollision v0.7.0=PuniCollision v0.7.0

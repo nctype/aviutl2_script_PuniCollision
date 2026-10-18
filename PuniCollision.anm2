@@ -1,4 +1,4 @@
---information:PuniCollision v0.7.2
+--information:PuniCollision v0.7.3
 --label:変形
 --require:2011300
 --track@collision_id:グループID,1,9999,1,1
@@ -519,7 +519,7 @@ end
 local function proxy_solve(bodies,span,steps,dt,scene,group,rigids)
     rigids=rigids or {}
     local cages={}
-    local signature={"proxy072",tostring(span),tostring(steps),tostring(dt)}
+    local signature={"proxy073",tostring(span),tostring(steps),tostring(dt)}
     local function add(v) signature[#signature+1]=string.format("%.17g",v) end
     for _,m in ipairs(bodies) do if m.cage then
         local c=m.cage;c.layer=m.layer;c.relative=m.relative;c.time=m.time;c.history={}
@@ -547,7 +547,7 @@ local function proxy_solve(bodies,span,steps,dt,scene,group,rigids)
             else add(0) end
         end
     end
-    local key="PuniProxy072:"..tostring(scene)..":"..tostring(group)
+    local key="PuniProxy073:"..tostring(scene)..":"..tostring(group)
     local sig=table.concat(signature,",")
     local cached=global[key..":result"]
     if global[key..":signature"]==sig and type(cached)=="string" then
@@ -667,8 +667,8 @@ local function capture_peer(effect_layer,cache)
     local standalone=not obj.getvalue("layer"..effect_layer)
     local fallback
     local ok,err=pcall(function()
-        -- A standalone effect belongs to the preceding media object. Resolve
-        -- that owner through the host callback instead of guessing from gaps.
+        -- Prefer a pre-collision callback. Standalone effects require the
+        -- preceding media load fallback because layer loads exclude them.
         for candidate=effect_layer,1,-1 do
             if obj.getvalue("layer"..candidate) then
                 prepare_psd_capture(candidate)
@@ -741,10 +741,15 @@ local function main()
         end
         return
     end
-    local self_pose=pose("",nil,saved)
+    -- The effect slot is not the media object. Use the media's drawing
+    -- parameters and clock for both simulation and inverse texture mapping.
+    local layer,group=obj.layer,math.floor(collision_id)
+    local media_prefix="layer"..layer.."."
+    local media_time=obj.getvalue(media_prefix.."time")
+    if not finite(media_time) then return end
+    local self_pose=pose(media_prefix,media_time,saved)
     if not self_pose or obj.w<=0 or obj.h<=0 then return end
     local width,height=obj.w,obj.h
-    local layer,group=obj.layer,math.floor(collision_id)
     local cache="cache:PuniMesh:"..tostring(obj.id)..":"..tostring(obj.effect_id)
     local source=cache..":source"
     if not obj.copybuffer(source,"object") then return end
@@ -807,7 +812,7 @@ local function main()
         own.cage=make_proxy(clamp(softness/100,0,1))
         if own.cage then own.cage.rebound=own.rebound end
     end
-    own.layer,own.relative,own.time=layer,saved,obj.time
+    own.layer,own.relative,own.time=layer,saved,media_time
     bodies[#bodies+1]=own
     table.sort(bodies,function(a,b) return a.layer<b.layer end)
     -- Deterministic finite-history integration: scrubbing, reverse playback and

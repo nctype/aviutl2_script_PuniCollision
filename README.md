@@ -1,5 +1,9 @@
 # PuniCollision
 
+<video width="1920" height="1080" loop>
+  <source src="https://github.com/user-attachments/assets/df8f9a61-8941-4577-a7d8-ced283a6523d" type="video/mp4">
+</video>
+
 <details open>
 <summary><strong>日本語　▲ 🌐 Switch Language</strong></summary>
 
